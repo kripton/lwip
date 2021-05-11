@@ -26,6 +26,10 @@
 #ifndef MAKEFS_SUPPORT_DEFLATE
 #define MAKEFS_SUPPORT_DEFLATE 0
 #endif
+#ifndef MAKEFS_SUPPORT_BROTLI
+#define MAKEFS_SUPPORT_BROTLI 0
+#endif
+
 
 #define COPY_BUFSIZE (1024*1024) /* 1 MByte */
 
@@ -57,6 +61,28 @@ static int deflate_level; /* default compression level, can be changed via comma
 #define USAGE_ARG_DEFLATE " [-defl<:compr_level>]"
 #else /* MAKEFS_SUPPORT_DEFLATE */
 #define USAGE_ARG_DEFLATE ""
+#endif /* MAKEFS_SUPPORT_DEFLATE */
+
+#if MAKEFS_SUPPORT_BROTLI
+#include <brotli/encode.h>
+#include <brotli/decode.h> // used for sanity checking and verification
+
+typedef unsigned char uint8;
+
+/* COMP_OUT_BUF_SIZE is the size of the output buffer used during compression.
+   COMP_OUT_BUF_SIZE must be >= 1 and <= OUT_BUF_SIZE */
+#define COMP_OUT_BUF_SIZE COPY_BUFSIZE
+
+/* OUT_BUF_SIZE is the size of the output buffer used during decompression.
+   OUT_BUF_SIZE must be a power of 2 >= TINFL_LZ_DICT_SIZE (because the low-level decompressor not only writes, but reads from the output buffer as it decompresses) */
+#define OUT_BUF_SIZE COPY_BUFSIZE
+static uint8 s_outbuf[OUT_BUF_SIZE];
+static uint8 s_checkbuf[OUT_BUF_SIZE];
+
+static int brotli_level; /* default compression level, can be changed via command line */
+#define USAGE_ARG_BROTLI " [-brotli<:compr_level>]"
+#else /* MAKEFS_SUPPORT_DEFLATE */
+#define USAGE_ARG_BROTLI ""
 #endif /* MAKEFS_SUPPORT_DEFLATE */
 
 #ifdef WIN32
@@ -143,11 +169,11 @@ unsigned char useHttp11 = 0;
 unsigned char supportSsi = 1;
 unsigned char precalcChksum = 0;
 unsigned char includeLastModified = 0;
-#if MAKEFS_SUPPORT_DEFLATE
+#if MAKEFS_SUPPORT_DEFLATE || MAKEFS_SUPPORT_BROTLI
 unsigned char deflateNonSsiFiles = 0;
 size_t deflatedBytesReduced = 0;
 size_t overallDataBytes = 0;
-#endif
+#endif // MAKEFS_SUPPORT_DEFLATE || MAKEFS_SUPPORT_BROTLI
 const char *exclude_list = NULL;
 const char *ncompress_list = NULL;
 
@@ -176,6 +202,10 @@ static void print_usage(void)
 #if MAKEFS_SUPPORT_DEFLATE
   printf("   switch -defl: deflate-compress all non-SSI files (with opt. compr.-level, default=10)" NEWLINE);
   printf("                 ATTENTION: browser has to support \"Content-Encoding: deflate\"!" NEWLINE);
+#endif
+#if MAKEFS_SUPPORT_BROTLI
+  printf("   switch -brotli: brotli-compress all non-SSI files (with opt. compr.-level, default=11)" NEWLINE);
+  printf("                 ATTENTION: browser has to support \"Content-Encoding: br\"!" NEWLINE);
 #endif
   printf("   if targetdir not specified, htmlgen will attempt to" NEWLINE);
   printf("   process files in subdirectory 'fs'" NEWLINE);
@@ -253,6 +283,26 @@ int main(int argc, char *argv[])
         printf("Deflating all non-SSI files with level %d (but only if size is reduced)" NEWLINE, deflate_level);
 #else
         printf("WARNING: Deflate support is disabled\n");
+#endif
+      } else if (strstr(argv[i], "-brotli") == argv[i]) {
+#if MAKEFS_SUPPORT_BROTLI
+        const char *colon = &argv[i][5];
+        if (*colon == ':') {
+          int brtl_level = atoi(&colon[1]);
+          if ((colon[1] != 0) && (brtl_level >= 0) && (brtl_level <= 11)) {
+            brotli_level = brtl_level;
+          } else {
+            printf("ERROR: brotli level must be [0..11]" NEWLINE);
+            exit(0);
+          }
+        } else {
+          /* default to highest compression */
+          brotli_level = 11;
+        }
+        deflateNonSsiFiles = 1;
+        printf("Brotli-compressing all non-SSI files with level %d (but only if size is reduced)" NEWLINE, brotli_level);
+#else
+        printf("WARNING: Brotli support is disabled\n");
 #endif
       } else if (strstr(argv[i], "-x:") == argv[i]) {
         exclude_list = &argv[i][3];
@@ -376,6 +426,12 @@ int main(int argc, char *argv[])
 #if MAKEFS_SUPPORT_DEFLATE
   if (deflateNonSsiFiles) {
     printf("(Deflated total byte reduction: %d bytes -> %d bytes (%.02f%%)" NEWLINE,
+           (int)overallDataBytes, (int)deflatedBytesReduced, (float)((deflatedBytesReduced * 100.0) / overallDataBytes));
+  }
+#endif
+#if MAKEFS_SUPPORT_BROTLI
+  if (deflateNonSsiFiles) {
+    printf("(Brotli-compresses total byte reduction: %d bytes -> %d bytes (%.02f%%)" NEWLINE,
            (int)overallDataBytes, (int)deflatedBytesReduced, (float)((deflatedBytesReduced * 100.0) / overallDataBytes));
   }
 #endif
@@ -646,8 +702,63 @@ static u8_t *get_file_data(const char *filename, int *file_size, int can_be_comp
     }
   }
 #else
+#if MAKEFS_SUPPORT_BROTLI
+  overallDataBytes += fsize;
+  if (deflateNonSsiFiles) {
+    if (can_be_compressed) {
+      if (fsize < OUT_BUF_SIZE) {
+        u8_t *ret_buf;
+        BROTLI_BOOL status;
+        size_t in_bytes = fsize;
+        size_t out_bytes = OUT_BUF_SIZE;
+        const void *next_in = buf;
+        void *next_out = s_outbuf;
+        memset(s_outbuf, 0, sizeof(s_outbuf));
+        status = BrotliEncoderCompress(brotli_level, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_TEXT, in_bytes, next_in, &out_bytes, next_out);
+        if (status != BROTLI_TRUE) {
+          printf("brotli failed: %d\n", status);
+          exit(-1);
+        }
+        LWIP_ASSERT("out_bytes <= COPY_BUFSIZE", out_bytes <= OUT_BUF_SIZE);
+        if (out_bytes < fsize) {
+          ret_buf = (u8_t *)malloc(out_bytes);
+          LWIP_ASSERT("ret_buf != NULL", ret_buf != NULL);
+          memcpy(ret_buf, s_outbuf, out_bytes);
+          {
+            /* sanity-check compression be inflating and comparing to the original */
+            BrotliDecoderResult dec_status;
+            size_t dec_in_bytes = out_bytes;
+            size_t dec_out_bytes = OUT_BUF_SIZE;
+            next_out = s_checkbuf;
+
+            memset(s_checkbuf, 0, sizeof(s_checkbuf));
+            dec_status = BrotliDecoderDecompress(dec_in_bytes, ret_buf, &dec_out_bytes, s_checkbuf);
+
+            LWIP_ASSERT("tinfl_decompress failed", dec_status == BROTLI_DECODER_RESULT_SUCCESS);
+            LWIP_ASSERT("tinfl_decompress size mismatch", fsize == dec_out_bytes);
+            LWIP_ASSERT("decompressed memcmp failed", !memcmp(s_checkbuf, buf, fsize));
+          }
+          /* free original buffer, use compressed data + size */
+          free(buf);
+          buf = ret_buf;
+          *file_size = out_bytes;
+          printf(" - brotli: %d bytes -> %d bytes (%.02f%%)" NEWLINE, (int)fsize, (int)out_bytes, (float)((out_bytes * 100.0) / fsize));
+          deflatedBytesReduced += (size_t)(fsize - out_bytes);
+          *is_compressed = 1;
+        } else {
+          printf(" - uncompressed: (would be %d bytes larger using brotli)" NEWLINE, (int)(out_bytes - fsize));
+        }
+      } else {
+        printf(" - uncompressed: (file is larger than brotli buffer)" NEWLINE);
+      }
+    } else {
+      printf(" - cannot be compressed" NEWLINE);
+    }
+  }
+#else
   LWIP_UNUSED_ARG(can_be_compressed);
-#endif
+#endif // MAKEFS_SUPPORT_BROTLI
+#endif // MAKEFS_SUPPORT_DEFLATE
   fclose(inFile);
   return buf;
 }
@@ -1211,11 +1322,16 @@ int file_write_http_header(FILE *data_file, const char *filename, int file_size,
     }
   }
 
-#if MAKEFS_SUPPORT_DEFLATE
+#if MAKEFS_SUPPORT_DEFLATE || MAKEFS_SUPPORT_BROTLI
   if (is_compressed) {
     /* tell the client about the deflate encoding */
     LWIP_ASSERT("error", deflateNonSsiFiles);
+#if MAKEFS_SUPPORT_DEFLATE
     cur_string = "Content-Encoding: deflate\r\n";
+#endif
+#if MAKEFS_SUPPORT_BROTLI
+    cur_string = "Content-Encoding: br\r\n";
+#endif
     cur_len = strlen(cur_string);
     fprintf(data_file, NEWLINE "/* \"%s\" (%d bytes) */" NEWLINE, cur_string, cur_len);
     written += file_put_ascii(data_file, cur_string, cur_len, &i);
@@ -1223,7 +1339,7 @@ int file_write_http_header(FILE *data_file, const char *filename, int file_size,
   }
 #else
   LWIP_UNUSED_ARG(is_compressed);
-#endif
+#endif // MAKEFS_SUPPORT_DEFLATE || MAKEFS_SUPPORT_BROTLI
 
   /* write content-type, ATTENTION: this includes the double-CRLF! */
   cur_string = file_type;
