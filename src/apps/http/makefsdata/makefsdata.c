@@ -200,8 +200,13 @@ static void print_usage(void)
   printf("   switch -x: comma separated list of extensions of files to exclude (e.g., -x:json,txt)" NEWLINE);
   printf("   switch -xc: comma separated list of extensions of files to not compress (e.g., -xc:mp3,jpg)" NEWLINE);
 #if MAKEFS_SUPPORT_DEFLATE
+#if MAKEFS_SUPPORT_DEFLATE_ZOPFLI
+  printf("   switch -defl: deflate-compress all non-SSI files with zopfli (with opt. numIterations, default=10)" NEWLINE);
+  printf("                 ATTENTION: browser has to support \"Content-Encoding: deflate\"!" NEWLINE);
+#else
   printf("   switch -defl: deflate-compress all non-SSI files (with opt. compr.-level, default=10)" NEWLINE);
   printf("                 ATTENTION: browser has to support \"Content-Encoding: deflate\"!" NEWLINE);
+#endif
 #endif
   printf("   if targetdir not specified, htmlgen will attempt to" NEWLINE);
   printf("   process files in subdirectory 'fs'" NEWLINE);
@@ -265,18 +270,31 @@ int main(int argc, char *argv[])
         const char *colon = &argv[i][5];
         if (*colon == ':') {
           int defl_level = atoi(&colon[1]);
+#if MAKEFS_SUPPORT_DEFLATE_ZOPFLI
+          if ((colon[1] != 0) && (defl_level >= 0) && (defl_level <= 500)) {
+            deflate_level = defl_level;
+          } else {
+            printf("ERROR: deflate number of iterations must be [0..500]" NEWLINE);
+            exit(0);
+          }
+#else
           if ((colon[1] != 0) && (defl_level >= 0) && (defl_level <= 10)) {
             deflate_level = defl_level;
           } else {
             printf("ERROR: deflate level must be [0..10]" NEWLINE);
             exit(0);
           }
+#endif
         } else {
           /* default to highest compression */
           deflate_level = 10;
         }
         deflateNonSsiFiles = 1;
+#if MAKEFS_SUPPORT_DEFLATE_ZOPFLI
+        printf("Deflating all non-SSI files %d zopfli iterations (but only if size is reduced)" NEWLINE, deflate_level);
+#else
         printf("Deflating all non-SSI files with level %d (but only if size is reduced)" NEWLINE, deflate_level);
+#endif
 #else
         printf("WARNING: Deflate support is disabled\n");
 #endif
