@@ -5,6 +5,7 @@
  *
  * Author: Jim Pettinato
  *         Simon Goldschmidt
+ *         Jannis Achstetter
  *
  * @todo:
  * - take TCP_MSS, LWIP_TCP_TIMESTAMPS and
@@ -228,7 +229,8 @@ int main(int argc, char *argv[])
 
   printf(NEWLINE " makefsdata v" LWIP_VERSION_STRING " - HTML to C source converter" NEWLINE);
   printf("     by Jim Pettinato               - circa 2003 " NEWLINE);
-  printf("     extended by Simon Goldschmidt  - 2009 " NEWLINE NEWLINE);
+  printf("     extended by Simon Goldschmidt  - 2009 " NEWLINE);
+  printf("     extended by Jannis Achstetter  - 2021 " NEWLINE NEWLINE);
 
   LWIP_ASSERT("sizeof(hdr_buf) must fit into an u16_t", sizeof(hdr_buf) <= 0xffff);
 
