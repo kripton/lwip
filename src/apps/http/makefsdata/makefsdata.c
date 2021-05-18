@@ -168,10 +168,11 @@ unsigned char useHttp11 = 0;
 unsigned char supportSsi = 1;
 unsigned char precalcChksum = 0;
 unsigned char includeLastModified = 0;
+size_t overallDataBytes = 0;
 #if MAKEFS_SUPPORT_DEFLATE
 unsigned char deflateNonSsiFiles = 0;
 size_t deflatedBytesReduced = 0;
-size_t overallDataBytes = 0;
+size_t compressibleDataBytes = 0;
 #endif
 const char *exclude_list = NULL;
 const char *ncompress_list = NULL;
@@ -397,11 +398,12 @@ int main(int argc, char *argv[])
     printf("Warning: failed to delete fshdr.tmp\n");
   }
 
-  printf(NEWLINE "Processed %d files - done." NEWLINE, filesProcessed);
+  printf(NEWLINE "Processed %d files - %d bytes in total - done." NEWLINE, filesProcessed, (int)overallDataBytes);
 #if MAKEFS_SUPPORT_DEFLATE
   if (deflateNonSsiFiles) {
-    printf("(Deflated total byte reduction: %d bytes -> %d bytes (%.02f%%)" NEWLINE,
-           (int)overallDataBytes, (int)deflatedBytesReduced, (float)((deflatedBytesReduced * 100.0) / overallDataBytes));
+    int compressedSize = (int)(compressibleDataBytes - deflatedBytesReduced);
+    printf("Deflated total byte reduction: %d bytes in compressible files -> %d bytes (%.02f%%)" NEWLINE,
+           (int)compressibleDataBytes, compressedSize, (float)((compressedSize * 100.0) / overallDataBytes));
   }
 #endif
   printf(NEWLINE);
@@ -606,10 +608,11 @@ static u8_t *get_file_data(const char *filename, int *file_size, int can_be_comp
   LWIP_ASSERT("r == fsize", r == fsize);
   *file_size = fsize;
   *is_compressed = 0;
-#if MAKEFS_SUPPORT_DEFLATE
   overallDataBytes += fsize;
+#if MAKEFS_SUPPORT_DEFLATE
   if (deflateNonSsiFiles) {
     if (can_be_compressed) {
+      compressibleDataBytes += fsize;
       if (fsize < OUT_BUF_SIZE) {
         u8_t *ret_buf;
 #if MAKEFS_SUPPORT_DEFLATE_ZLIB
@@ -635,7 +638,7 @@ static u8_t *get_file_data(const char *filename, int *file_size, int can_be_comp
 #elif MAKEFS_SUPPORT_DEFLATE_ZOPFLI
         ZopfliInitOptions(&zopfli_opts);
         zopfli_opts.verbose = 0;
-        zopfli_opts.numiterations = 30;
+        zopfli_opts.numiterations = deflate_level;
         zopfli_opts.blocksplitting = 1;
         zopfli_opts.blocksplittingmax = 15;
         out_bytes = 0;
@@ -1279,7 +1282,7 @@ int file_write_http_header(FILE *data_file, const char *filename, int file_size,
     LWIP_ASSERT("error", deflateNonSsiFiles);
     cur_string = "Content-Encoding: deflate\r\n";
     cur_len = strlen(cur_string);
-    fprintf(data_file, NEWLINE "/* \"%s\" (%d bytes) */" NEWLINE, cur_string, cur_len);
+    fprintf(data_file, NEWLINE "/* \"%s\" (%d bytes) */" NEWLINE, cur_string, (int)cur_len);
     written += file_put_ascii(data_file, cur_string, cur_len, &i);
     i = 0;
   }
