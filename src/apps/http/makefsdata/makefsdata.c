@@ -21,22 +21,36 @@
 
 /** Makefsdata can generate *all* files deflate-compressed (where file size shrinks).
  * Since nearly all browsers support this, this is a good way to reduce ROM size.
- * To compress the files, "miniz.c" must be downloaded separately OR
+ * To compress the files, "miniz.c" must be downloaded separately
+ * OR
  * MAKEFS_SUPPORT_DEFLATE_ZLIB must be set and the zlib library and headers
- * must be present on the system compiling this program.
+ * must be present on the system compiling this program
+ * OR
+ * MAKEFS_SUPPORT_DEFLATE_ZOPFLI must be set and the zopfli AND zlib libraries
+ * and headers must be present on the system compiling this program.
  */
 #ifndef MAKEFS_SUPPORT_DEFLATE
 #define MAKEFS_SUPPORT_DEFLATE 0
+
 #ifndef MAKEFS_SUPPORT_DEFLATE_ZLIB
 #define MAKEFS_SUPPORT_DEFLATE_ZLIB 0
 #endif // MAKEFS_SUPPORT_DEFLATE_ZLIB
+
+#ifndef MAKEFS_SUPPORT_DEFLATE_ZOPFLI
+#define MAKEFS_SUPPORT_DEFLATE_ZOPFLI 0
+#endif // MAKEFS_SUPPORT_DEFLATE_ZOPFLI
+
 #endif // MAKEFS_SUPPORT_DEFLATE
 
 #define COPY_BUFSIZE (1024*1024) /* 1 MByte */
 
 #if MAKEFS_SUPPORT_DEFLATE
+
 #if MAKEFS_SUPPORT_DEFLATE_ZLIB
 #include <zlib.h>
+#elif MAKEFS_SUPPORT_DEFLATE_ZOPFLI
+#include <zlib.h>
+#include <zopfli.h>
 #else
 #include "../miniz.c"
 #endif // MAKEFS_SUPPORT_DEFLATE
@@ -58,11 +72,11 @@ typedef unsigned int uint;
 static uint8 s_outbuf[OUT_BUF_SIZE];
 static uint8 s_checkbuf[OUT_BUF_SIZE];
 
-#ifndef MAKEFS_SUPPORT_DEFLATE_ZLIB
+#if ((MAKEFS_SUPPORT_DEFLATE_ZLIB == 0) && (MAKEFS_SUPPORT_DEFLATE_ZOPFLI == 0))
 /* tdefl_compressor contains all the state needed by the low-level compressor so it's a pretty big struct (~300k).
    This example makes it a global vs. putting it on the stack, of course in real-world usage you'll probably malloc() or new it. */
 tdefl_compressor g_deflator;
-#endif // MAKEFS_SUPPORT_DEFLATE_ZLIB
+#endif
 
 static int deflate_level; /* default compression level, can be changed via command line */
 #define USAGE_ARG_DEFLATE " [-defl<:compr_level>]"
@@ -598,17 +612,38 @@ static u8_t *get_file_data(const char *filename, int *file_size, int can_be_comp
     if (can_be_compressed) {
       if (fsize < OUT_BUF_SIZE) {
         u8_t *ret_buf;
-#ifndef MAKEFS_SUPPORT_DEFLATE_ZLIB
-        tdefl_status status;
-#else
+#if MAKEFS_SUPPORT_DEFLATE_ZLIB
         int status;
-#endif // MAKEFS_SUPPORT_DEFLATE_ZLIB
+#elif MAKEFS_SUPPORT_DEFLATE_ZOPFLI
+        ZopfliOptions zopfli_opts;
+        unsigned char* zopfli_out = 0;
+#else
+        tdefl_status status;
+#endif
         size_t in_bytes = fsize;
         size_t out_bytes = OUT_BUF_SIZE;
         const void *next_in = buf;
         void *next_out = s_outbuf;
         memset(s_outbuf, 0, sizeof(s_outbuf));
-#ifndef MAKEFS_SUPPORT_DEFLATE_ZLIB
+
+#if MAKEFS_SUPPORT_DEFLATE_ZLIB
+        status = compress2(next_out, &out_bytes, next_in, in_bytes, deflate_level);
+        if (status != Z_OK) {
+          printf("deflate failed: %d\n", status);
+          exit(-1);
+        }
+#elif MAKEFS_SUPPORT_DEFLATE_ZOPFLI
+        ZopfliInitOptions(&zopfli_opts);
+        zopfli_opts.verbose = 0;
+        zopfli_opts.numiterations = 30;
+        zopfli_opts.blocksplitting = 1;
+        zopfli_opts.blocksplittingmax = 15;
+        out_bytes = 0;
+        ZopfliCompress(&zopfli_opts, ZOPFLI_FORMAT_ZLIB, next_in, in_bytes, &zopfli_out, &out_bytes);
+        out_bytes = my_min(out_bytes, OUT_BUF_SIZE);
+        memcpy(next_out, zopfli_out, out_bytes);
+        free(zopfli_out);
+#else
         /* create tdefl() compatible flags (we have to compose the low-level flags ourselves, or use tdefl_create_comp_flags_from_zip_params() but that means MINIZ_NO_ZLIB_APIS can't be defined). */
         mz_uint comp_flags = s_tdefl_num_probes[MZ_MIN(10, deflate_level)] | ((deflate_level <= 3) ? TDEFL_GREEDY_PARSING_FLAG : 0);
         if (!deflate_level) {
@@ -624,13 +659,8 @@ static u8_t *get_file_data(const char *filename, int *file_size, int can_be_comp
           printf("deflate failed: %d\n", status);
           exit(-1);
         }
-#else
-        status = compress2(next_out, &out_bytes, next_in, in_bytes, deflate_level);
-        if (status != Z_OK) {
-          printf("deflate failed: %d\n", status);
-          exit(-1);
-        }
-#endif // MAKEFS_SUPPORT_DEFLATE_ZLIB
+#endif
+
         LWIP_ASSERT("out_bytes <= COPY_BUFSIZE", out_bytes <= OUT_BUF_SIZE);
         if (out_bytes < fsize) {
           ret_buf = (u8_t *)malloc(out_bytes);
@@ -642,18 +672,21 @@ static u8_t *get_file_data(const char *filename, int *file_size, int can_be_comp
             size_t dec_out_bytes = OUT_BUF_SIZE;
             next_out = s_checkbuf;
             memset(s_checkbuf, 0, sizeof(s_checkbuf));
-#ifndef MAKEFS_SUPPORT_DEFLATE_ZLIB
+
+#if (MAKEFS_SUPPORT_DEFLATE_ZLIB || MAKEFS_SUPPORT_DEFLATE_ZOPFLI)
+            int dec_status;
+
+            dec_status = uncompress2(s_checkbuf, &dec_out_bytes, ret_buf, &dec_in_bytes);
+            LWIP_ASSERT("tinfl_decompress failed", dec_status == Z_OK);
+#else
             tinfl_status dec_status;
             tinfl_decompressor inflator;
 
             tinfl_init(&inflator);
             dec_status = tinfl_decompress(&inflator, (const mz_uint8 *)ret_buf, &dec_in_bytes, s_checkbuf, (mz_uint8 *)next_out, &dec_out_bytes, 0);
             LWIP_ASSERT("tinfl_decompress failed", dec_status == TINFL_STATUS_DONE);
-#else
-            int dec_status;
-            dec_status = uncompress2 (s_checkbuf, &dec_out_bytes, ret_buf, &dec_in_bytes);
-            LWIP_ASSERT("tinfl_decompress failed", dec_status == Z_OK);
-#endif // MAKEFS_SUPPORT_DEFLATE_ZLIB
+#endif // MAKEFS_SUPPORT_DEFLATE_ZLIB || MAKEFS_SUPPORT_DEFLATE_ZOPFLI
+
             LWIP_ASSERT("tinfl_decompress size mismatch", fsize == dec_out_bytes);
             LWIP_ASSERT("decompressed memcmp failed", !memcmp(s_checkbuf, buf, fsize));
           }
