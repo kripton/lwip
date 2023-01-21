@@ -170,6 +170,11 @@ typedef enum {
 #define DHCP_OVERLOAD_SNAME         2
 #define DHCP_OVERLOAD_SNAME_FILE    3
 
+/* DHCP OPTION 61 TYPE */
+#define DHCP_OPTION_CLIENT_ID_MAC   0x01
+#define DHCP_OPTION_CLIENT_ID_DUID  0x02
+#define DHCP_OPTION_CLIENT_ID_IAID  0xff
+#define DHCP_OPTION_CLIENT_ID_MAC_LEN   7
 
 #ifdef __cplusplus
 }
