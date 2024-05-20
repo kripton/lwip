@@ -43,7 +43,7 @@
 
 #endif /* MAKEFS_SUPPORT_DEFLATE */
 
-#define COPY_BUFSIZE (1024*1024) /* 1 MByte */
+#define COPY_BUFSIZE (8192*1024) /* 8 MByte */
 
 #if MAKEFS_SUPPORT_DEFLATE
 
