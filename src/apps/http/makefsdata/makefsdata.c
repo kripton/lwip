@@ -1314,6 +1314,12 @@ int file_write_http_header(FILE *data_file, const char *filename, int file_size,
   LWIP_UNUSED_ARG(is_compressed);
 #endif
 
+  // For development: CORS header
+  cur_string = "Access-Control-Allow-Origin: *\r\n";
+  cur_len = strlen(cur_string);
+  fprintf(data_file, NEWLINE "/* \"%s\" (%"SZT_F" bytes) */" NEWLINE, cur_string, cur_len);
+  written += file_put_ascii(data_file, cur_string, cur_len, &i);
+
   /* write content-type, ATTENTION: this includes the double-CRLF! */
   cur_string = file_type;
   cur_len = strlen(cur_string);
