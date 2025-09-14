@@ -156,6 +156,8 @@ SNMPFILES=$(LWIPDIR)/apps/snmp/snmp_asn1.c \
 	$(LWIPDIR)/apps/snmp/snmp_scalar.c \
 	$(LWIPDIR)/apps/snmp/snmp_table.c \
 	$(LWIPDIR)/apps/snmp/snmp_threadsync.c \
+	$(LWIPDIR)/apps/httpd/base64.c
+	$(LWIPDIR)/apps/httpd/sha1.c
 	$(LWIPDIR)/apps/snmp/snmp_traps.c
 
 # HTTPFILES: HTTP server + client
