@@ -45,6 +45,11 @@
 #include "lwip/err.h"
 #include "lwip/pbuf.h"
 
+#if LWIP_HTTPD_SUPPORT_WEBSOCKET
+#include "lwip/altcp.h"
+#include "lwip/altcp_tcp.h"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

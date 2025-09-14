@@ -156,14 +156,14 @@ SNMPFILES=$(LWIPDIR)/apps/snmp/snmp_asn1.c \
 	$(LWIPDIR)/apps/snmp/snmp_scalar.c \
 	$(LWIPDIR)/apps/snmp/snmp_table.c \
 	$(LWIPDIR)/apps/snmp/snmp_threadsync.c \
-	$(LWIPDIR)/apps/httpd/base64.c
-	$(LWIPDIR)/apps/httpd/sha1.c
 	$(LWIPDIR)/apps/snmp/snmp_traps.c
 
 # HTTPFILES: HTTP server + client
 HTTPFILES=$(LWIPDIR)/apps/http/altcp_proxyconnect.c \
 	$(LWIPDIR)/apps/http/fs.c \
 	$(LWIPDIR)/apps/http/http_client.c \
+	$(LWIPDIR)/apps/http/base64.c \
+	$(LWIPDIR)/apps/http/sha1.c \
 	$(LWIPDIR)/apps/http/httpd.c
 
 # MAKEFSDATA: MAKEFSDATA HTTP server host utility

@@ -176,6 +176,8 @@ set(lwiphttp_SRCS
     ${LWIP_DIR}/src/apps/http/altcp_proxyconnect.c
     ${LWIP_DIR}/src/apps/http/fs.c
     ${LWIP_DIR}/src/apps/http/http_client.c
+    ${LWIP_DIR}/src/apps/http/base64.c
+    ${LWIP_DIR}/src/apps/http/sha1.c
     ${LWIP_DIR}/src/apps/http/httpd.c
 )
 
