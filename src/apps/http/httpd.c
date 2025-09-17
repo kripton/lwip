@@ -591,16 +591,18 @@ http_state_free(struct http_state *hs)
 static err_t
 http_write(struct altcp_pcb *pcb, const void *ptr, u16_t *length, u8_t apiflags)
 {
-  u16_t len, max_len;
+  u16_t orig_len, len, max_len;
   err_t err;
   LWIP_ASSERT("length != NULL", length != NULL);
   len = *length;
+  orig_len = len;
   if (len == 0) {
     return ERR_OK;
   }
   /* We cannot send more data than space available in the send buffer. */
   max_len = altcp_sndbuf(pcb);
   if (max_len < len) {
+    LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Send buffer space too small\n"));
     len = max_len;
   }
 #ifdef HTTPD_MAX_WRITE_LEN
@@ -611,7 +613,7 @@ http_write(struct altcp_pcb *pcb, const void *ptr, u16_t *length, u8_t apiflags)
   }
 #endif /* HTTPD_MAX_WRITE_LEN */
   do {
-    LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Trying to send %d bytes\n", len));
+    LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Trying to send %d bytes of original %d\n", len, orig_len));
     err = altcp_write(pcb, ptr, len, apiflags);
     if (err == ERR_MEM) {
       if ((altcp_sndbuf(pcb) == 0) ||
