@@ -2017,7 +2017,7 @@ http_parse_request(struct pbuf *inp, struct http_state *hs, struct altcp_pcb *pc
   /* first check allowed characters in this pbuf? */
 
   /* enqueue the pbuf */
-  if (hs->req == NULL) {
+  if (hs->req == NULL || hs->req == p) {
     LWIP_DEBUGF(HTTPD_DEBUG, ("First pbuf\n"));
     hs->req = p;
   } else {
