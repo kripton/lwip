@@ -487,7 +487,6 @@ tcp_input(struct pbuf *p, struct netif *inp)
           if (pcb->flags & TF_RXCLOSED) {
             /* received data although already closed -> abort (send RST) to
                notify the remote host that not all data has been processed */
-            pbuf_free(recv_data);
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
             if (rest != NULL) {
               pbuf_free(rest);
@@ -500,6 +499,8 @@ tcp_input(struct pbuf *p, struct netif *inp)
           /* Notify application that data has been received. */
           TCP_EVENT_RECV(pcb, recv_data, ERR_OK, err);
           if (err == ERR_ABRT) {
+			/* pbuf has been freed by the application */
+			recv_data = NULL;
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
             if (rest != NULL) {
               pbuf_free(rest);
@@ -516,12 +517,19 @@ tcp_input(struct pbuf *p, struct netif *inp)
             }
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
             pcb->refused_data = recv_data;
+			/* We keep incoming packet, so pbuf must not be freed */
+			recv_data = NULL;
             LWIP_DEBUGF(TCP_INPUT_DEBUG, ("tcp_input: keep incoming packet, because pcb is \"full\"\n"));
 #if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
             break;
+#endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
           } else {
+#if TCP_QUEUE_OOSEQ && LWIP_WND_SCALE
             /* Upper layer received the data, go on with the rest if > 64K */
             recv_data = rest;
+#else /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
+            /* Upper layer received the data, pbuf has already been freed */
+            recv_data = NULL;
 #endif /* TCP_QUEUE_OOSEQ && LWIP_WND_SCALE */
           }
         }
@@ -562,7 +570,12 @@ tcp_input(struct pbuf *p, struct netif *inp)
        Below this line, 'pcb' may not be dereferenced! */
 aborted:
     tcp_input_pcb = NULL;
-    recv_data = NULL;
+
+	/* Release the received data, if not already done */
+	if (recv_data != NULL) {
+		pbuf_free(recv_data);
+		recv_data = NULL;
+	}
 
     /* give up our reference to inseg.p */
     if (inseg.p != NULL) {
